@@ -77,6 +77,14 @@
     (goto-char end)
     (python-util-forward-comment 1)))
 
+(defun tmux-ipython-send-from-beginning ()
+  (interactive)
+  (tmux-shell-send-string
+   (buffer-substring-no-properties
+    (point-min)
+    (line-end-position)
+    )))
+
 (defun tmux-ipython-send-to-end ()
   (interactive)
   (let (pos)
@@ -136,18 +144,5 @@
           (error "already in ipython console")))
     (tmux-run-key "jupyter console --existing ")))
 
-(defun tmux-ipython-conda-env-activate ()
-  (interactive)
-  ;; (lsp-restart-workspace)
-  (unless (tmux-pane-1-exist-p)
-      (error "pane 1 doesn't exist"))
-  (if (tmux-python-console-p)
-      (if (yes-or-no-p "kill ipython shell? ")
-          (tmux-run-key "exit")
-        (error "set conda env not allowed inside an ipython shell")))
-  (when (y-or-n-p "activate an conda env?")
-    (tmux-run-key (concat "conda activate " (conda--get-env-name))))
-  (when (yes-or-no-p "run jupyter console?")
-    (tmux-run-key "jupyter console --existing")))
 
 (provide 'tmux-head-ipython)

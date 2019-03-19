@@ -311,8 +311,6 @@
   (let ((num-list (tmux-get-pane-or-window-number-list t)))
     (if (= (length num-list) 1)
         (error "only one pane in the window"))
-    (when (tmux-head-zoomed)
-      (delete-other-windows))
     (tmux-run-command "resize-pane" "-Z")))
 
 (defun tmux-window-exist (window-num)
