@@ -33,20 +33,20 @@
                      (mapconcat 'identity (cons "tmux" args) " ")
                      retval)))))
 
-(defun tmux-run-command-on-pane-1 (cmd &rest args)
-  (apply 'tmux-run-command cmd "-t" "1" args))
+(defun tmux-pane-0-run-command (cmd &rest args)
+  (apply 'tmux-run-command cmd "-t" "0" args))
 
 (defun tmux-send-key (&rest args)
-  (apply 'tmux-run-command-on-pane-1 "send-keys" args))
+  (apply 'tmux-pane-0-run-command "send-keys" args))
 
 (defun tmux-run-key (&rest args)
-  (apply 'tmux-run-command-on-pane-1 "send-keys" (nconc args '("C-m"))))
+  (apply 'tmux-pane-0-run-command "send-keys" (nconc args '("C-m"))))
 
 (defun tmux-copy (str)
   (funcall 'tmux-run-command "set-buffer" "-b" "abuf" str))
 
 (defun tmux-paste ()
-  (funcall 'tmux-run-command-on-pane-1 "paste-buffer" "-p" "-b" "abuf")
+  (funcall 'tmux-pane-0-run-command "paste-buffer" "-p" "-b" "abuf")
   (tmux-send-key "C-m"))
 
 (defun tmux-shell-send-string (str &optional arg)
@@ -62,7 +62,7 @@
   (let* (beg end cmd-str no-history)
     (cond
      ((eq major-mode 'python-mode)
-      (unless (equal "python" (substring (tmux-pane-1-login-type) 0 6))
+      (unless (equal "python" (substring (tmux-pane-0-login-type) 0 6))
         (error "must run in a ipthon shell"))))
     (cond
      (mark-active
@@ -158,7 +158,6 @@
   (if (equal arg '(4))
       (counsel--browse-history comint-input-ring)
     (catch :exit
-      (tmux-unzoom-head)
       (ivy-read "Command to run: "
                 (delete-dups
                  (when (> (ring-size comint-input-ring) 0)
@@ -168,11 +167,8 @@
 
 (defun tmux-insert-state ()
   (interactive)
-  (let (window-zoomed done c)
-    (when (tmux-head-zoomed)
-      (setq window-zoomed t)
-      (tmux-unzoom-head))
-    (message "[Tmux State]")
+  (let (done c)
+    (message "======tmux=======tmux======tmux======")
     (catch :exit
       (while t
         (setq c (read-key))
@@ -180,11 +176,9 @@
             (if (eq done t)
                 (progn
                   (message "done")
-                  (if window-zoomed
-                      (tmux-zoom-head))
                   (throw :exit nil))
               (setq done t)
-              (message "[Tmux State]")
+              (message "======tmux=======tmux======tmux======")
               (if (= c 13)
                   (tmux-send-key "C-m")
                 (tmux-send-key "C-c")))
@@ -205,7 +199,7 @@
             (tmux-send-key (current-kill 0 t))
             )
            (t
-            (message "[Tmux State]")
+            (message "======tmux=======tmux======tmux======")
             (tmux-send-key (char-to-string c))
             )))))))
 
@@ -216,17 +210,12 @@
 
 (add-hook 'after-make-frame-functions #'tmux-set-emacs-frame-name nil)
 
-(defun tmux-goto-active-pane ()
-  (interactive)
-  (tmux-run-command-on-pane-1 "select-pane")
-  )
-
 (defun tmux-display-pane-numbers ()
   (interactive)
   (message "wait ...")
   (tmux-run-command "display-panes" "-d" "500")
   (sit-for 0.51)
-  (tmux-run-command "select-pane"  "-t" "0")
+  (tmux-pane-0-run-command "select-pane")
   (message "")
   )
 
@@ -274,9 +263,6 @@
              (split-string (buffer-string) "\n" t))))
     list))
 
-(defun tmux-pane-1-exist-p ()
-  (tmux-get-list-entry "1" "list-panes"))
-
 (defun tmux-display-message (message &optional pane-id)
   (with-temp-buffer
     (funcall 'call-process "tmux" nil t nil "display" "-t" (or pane-id "0") "-p" message)
@@ -292,26 +278,23 @@
 (defun tmux-window-id ()
   (tmux-display-message "#I"))
 
-(defun tmux-head-zoomed ()
+(defun tmux-zoomed ()
   (let ((status (tmux-display-message "#{window_zoomed_flag}")))
     (equal "1" status)))
 
-(defun tmux-zoom-head ()
-  (unless (tmux-head-zoomed)
+(defun tmux-zoom-pane-0 ()
+  (unless (tmux-zoomed)
     (tmux-toggle-zoom))
   )
 
-(defun tmux-unzoom-head ()
-  (if (tmux-head-zoomed)
+(defun tmux-unzoom-pane-0 ()
+  (if (tmux-zoomed)
     (tmux-toggle-zoom))
   )
 
 (defun tmux-toggle-zoom ()
   (interactive)
-  (let ((num-list (tmux-get-pane-or-window-number-list t)))
-    (if (= (length num-list) 1)
-        (error "only one pane in the window"))
-    (tmux-run-command "resize-pane" "-Z")))
+  (tmux-pane-0-run-command "resize-pane" "-Z"))
 
 (defun tmux-window-exist (window-num)
   (tmux-get-list-entry window-num "list-windows"))
@@ -322,16 +305,13 @@
   (interactive "P")
   (let ((buf-name "tmux-capture")
         buf)
-    (tmux-run-command "select-pane"  "-t" "0") ;; emacsclient call from other panes
-    (tmux-zoom-head)
-    (unless (tmux-pane-1-exist-p)
-      (error "no joint pane"))
+    (tmux-zoom-pane-0)
     (when (get-buffer buf-name) (kill-buffer buf-name))
     (switch-to-buffer (setq buf (get-buffer-create buf-name)))
     (delete-other-windows)
     (if (equal arg '(4))
-        (funcall 'call-process "tmux" nil buf nil "capture-pane" "-t" "1" "-p" "-S" "-5000")
-      (funcall 'call-process "tmux" nil buf nil "capture-pane" "-t" "1" "-e" "-p" "-S" "-500")
+        (funcall 'call-process "tmux" nil buf nil "capture-pane" "-t" "0" "-p" "-S" "-5000")
+      (funcall 'call-process "tmux" nil buf nil "capture-pane" "-t" "0" "-e" "-p" "-S" "-500")
       (xterm-color-colorize-buffer))
     (setq truncate-lines 1)
     (force-mode-line-update)
@@ -341,7 +321,7 @@
     (write-file (concat "~/log/tmux-capture-" (number-to-string capture-number)))
     (if (= capture-number 9)
         (setq capture-number 0)
-    (incf capture-number))
+    (setq capture-number (+ 1 capture-number)))
     ))
 
 (defun tmux-ctrl-c ()
@@ -359,7 +339,7 @@
   (tmux-send-key "C-m")
   )
 
-(defun tmux-quit ()
+(defun tmux-q ()
   (interactive)
   (tmux-send-key "q")
   )
@@ -369,37 +349,30 @@
   (tmux-send-key "C-z")
   )
 
-(defun tmux-send-no ()
+(defun tmux-space ()
+  (interactive)
+  (tmux-send-key " "))
+
+(defun tmux-n ()
   (interactive)
   (tmux-run-key "n"))
 
-(defun tmux-send-yes ()
+(defun tmux-y ()
   (interactive)
   (tmux-run-key "y"))
 
 (defun tmux-clear-pane ()
   (interactive)
   (tmux-send-key "-R" "C-l")
-  (tmux-run-command-on-pane-1 "clear-history")
+  (tmux-pane-0-run-command "clear-history")
   )
 
-(defun tmux-terminal-view ()
-  (interactive)
-  (let (height)
-    (setq height (/ (string-to-number (tmux-window-height)) 2))
-    (tmux-run-command "resize-pane" "-y" (number-to-string height))))
-
-(defun tmux-pane-1-login-type ()
+(defun tmux-login-type ()
   (replace-regexp-in-string "'" "" (tmux-display-message "#{pane_current_command}" "1")))
 
-(defun tmux-sync-location-with-emacs ()
+(defun tmux-cd-default-directory ()
   (interactive)
   (let (vec method user host dir)
-    (catch :exit
-      (when (tmux-head-zoomed)
-        (tmux-toggle-zoom)
-        (unless (y-or-n-p "continue?")
-          (throw :exit "cancelled"))))
     (if (not (file-remote-p default-directory))
         (tmux-run-key "cd" " " default-directory)
       (setq vec (tramp-dissect-file-name default-directory)
@@ -409,12 +382,11 @@
             dir (nth 6 vec))
       (cond
        ((or (equal method "ssh") (equal method "scp"))
-        (if (equal "ssh" (tmux-pane-1-login-type))
+        (if (equal "ssh" (tmux-login-type))
             (tmux-run-key "cd" (nth 6 vec))
-          (tmux-run-key "ssh " user "@" host " -t \"cd " dir " ; bash --login\"" ))
-          (tmux-goto-active-pane))
+          (tmux-run-key "ssh " user "@" host " -t \"cd " dir " ; bash --login\"" )))
        ((equal method "docker")
-        (if (equal "docker" (tmux-pane-1-login-type))
+        (if (equal "docker" (tmux-login-type))
             (tmux-run-key (concat "cd" " " dir))
           (tmux-run-key
            "docker exec" " -u " user " -w " dir " -e COLUMNS=\"`tput cols`\" -e LINES=\"`tput lines`\" -ti "
@@ -441,33 +413,28 @@
   (tmux-down)
   )
 
-(defun tmux-run-shell-cmd (prepend cmd-str)
-  (let ((cmd (concat (if (tmux-python-console-p) prepend)
-                     cmd-str)))
-    (tmux-run-key cmd)))
-
 (defun  tmux-ls ()
   (interactive)
-  (tmux-run-shell-cmd "!" "ls -lrt"))
+  (tmux-run-key "ls -lrt"))
 
 (defun tmux-pwd ()
   (interactive)
-  (tmux-run-shell-cmd "!" "pwd")
+  (tmux-run-key "pwd")
 )
 
 (defun tmux-home-dir ()
   (interactive)
-  (tmux-run-shell-cmd "%" "cd")
+  (tmux-run-key "cd")
   )
 
 (defun tmux-last-dir ()
   (interactive)
-  (tmux-run-shell-cmd "%" "cd -")
+  (tmux-run-key "cd -")
   )
 
 (defun tmux-up-dir ()
   (interactive)
-  (tmux-run-shell-cmd "%" "cd .."))
+  (tmux-run-key "%" "cd .."))
 
 (defun tmux-begin-cmd-history ()
   (tmux-run-key "history 200")
@@ -479,24 +446,20 @@
     (tmux-quit-copy-mode)
     (tmux-run-key (concat "!" (number-to-string history-number)))))
 
-(setq tmux-saved-pane-0-height "20")
-(setq tmux-pane-0-zoomed nil)
-(setq tmux-saved-pane-1-height 20)
+(setq tmux-pane-0-not-zoomed nil)
 
 (defun tmux-begin-copy-mode ()
-  (let ((num-list (tmux-get-pane-or-window-number-list t)))
-    (if (= (length num-list) 1)
-        (error "pane with id 1 doesn't exist"))
-    (if (tmux-head-zoomed)
-        (error "window is zoomed"))
-    (setq tmux-saved-pane-0-height (tmux-pane-height "0"))
-    (tmux-run-command "resize-pane" "-t" "0" "-y" "5")
-    (tmux-run-command-on-pane-1 "copy-mode")))
+  (unless (tmux-pane-0-zoomed)
+    (setq tmux-pane-0-not-zoomed t)
+    (tmux-zoom-pane-0))
+  (tmux-pane-0-run-command "copy-mode"))
 
 (defun tmux-quit-copy-mode ()
   (interactive)
-  (tmux-run-command "resize-pane" "-t" "0" "-y" tmux-saved-pane-0-height)
-  (tmux-send-key "q"))
+  (tmux-send-key "q")
+  (if tmux-pane-0-not-zoomed
+      (tmux-unzoom-pane-0))
+)
 
 (defun tmux-page-up ()
   (interactive)
@@ -522,36 +485,11 @@
   (interactive)
   (tmux-send-key "C-Up"))
 
-(defun tmux-split-window (directory)
-  (tmux-run-command "split-window" "-t" tmux-selected-pane directory)
-  (tmux-run-command "select-pane"  "-t" "0")
-  )
-
 (defun tmux-kill-pane ()
   (interactive)
   (let ((pane-num (tmux-select-pane-num)))
-    (if (equal "0" pane-num)
-        (error "pane 0 and 1 are persistent panes"))
     (tmux-run-command "kill-pane" "-t" pane-num)
   ))
-
-(defun tmux-new-window ()
-  (interactive)
-  (tmux-run-command "new-window" "~/bin/e")
-  (tmux-split-window "-v")
-  )
-
-(defun tmux-move-pane-horizantal ()
-  (interactive)
-  (tmux-run-command "move-pane" "-s" "1" "-t" "0" "-h")
-  (tmux-run-command "select-pane"  "-t" "0")
-  )
-
-(defun tmux-move-pane-vertical ()
-  (interactive)
-  (tmux-run-command "move-pane" "-s" "1" "-t" "0" "-v")
-  (tmux-run-command "select-pane"  "-t" "0")
-  )
 
 (defun tmux-resize-pane (directory)
   (tmux-run-command "resize-pane" "-t" tmux-selected-pane directory))
@@ -572,10 +510,20 @@
   (interactive)
   (tmux-resize-pane "-R"))
 
-(defun tmux-maximize-active-pane ()
+(defun tmux-new-window ()
   (interactive)
-  (tmux-run-command-on-pane-1 "select-pane")
-  (tmux-run-command-on-pane-1 "resize-pane" "-Z"))
+  (tmux-run-command "new-window")
+  )
+
+(defun tmux-kill-window ()
+  (interactive)
+  (tmux-run-command "kill-window")
+  )
+
+(defun tmux-split-window (direction)
+  (tmux-run-command "split-window" "-t" tmux-selected-pane direction)
+  (tmux-pane-0-run-command "select-pane")
+  )
 
 (defun tmux-split-window-horizontal ()
   (interactive)
@@ -587,28 +535,9 @@
   (tmux-split-window "-v")
   )
 
-(defun tmux-emacs-frame-show-current-buffer (window-id)
-  (let* ((buffer (current-buffer))
-         (frame-name (concat "tmux-" window-id))
-         (frame (catch 'found
-                  (dolist (fr (frame-list))
-                    (when (string= frame-name (cdr (assq 'name (frame-parameters fr))))
-                      (throw 'found fr)))
-                  nil))
-         (window (and frame (get-mru-window frame)))
-         window1)
-    (when window
-      (window--display-buffer buffer window 'frame)
-      (dolist (window1 (window-list-1 nil nil frame))
-        (unless (or (eq window1 window)
-                    (not (window-deletable-p window1)))
-	      (delete-window window1))))))
-
 (defun tmux-last-window (&optional keep-display)
   (interactive "P")
-  (tmux-run-command "last-window")
-  (unless keep-display
-    (tmux-emacs-frame-show-current-buffer (tmux-window-id))))
+  (tmux-run-command "last-window"))
 
 (defun tmux-next-window (&optional keep-display)
   (interactive "P")
@@ -685,56 +614,25 @@
 (defun tmux-select-pane ()
   (interactive)
   (tmux-display-pane-numbers)
-  (setq tmux-selected-pane (tmux-select-pane-num)))
+  (tmux-run-command "select-pane" "-t" (tmux-select-pane-num)))
 
-(defun tmux-select-swap-pane-num ()
-  (let ((num-list (tmux-get-pane-or-window-number-list t))
-        (prompt "Select Pane:"))
-    (if (<= (length num-list) 2)
-        (error "no swap pane candidate available"))
-    (my/tmux-select-number (cddr num-list) prompt)))
+(defun tmux-select-pane-0 ()
+  (interactive)
+  (tmux-pane-0-run-command "select-pane"))
 
 (defun tmux-swap-pane ()
   (interactive)
   (let ((num-list (tmux-get-pane-or-window-number-list t))
         (prompt "Select Pane:"))
-    (if (<= (length num-list) 2)
+    (if (<= (length num-list) 1)
         (error "this command is used for swapping two terminal panes"))
-    (if (= (length num-list) 3)
-        (tmux-run-command "swap-pane" "-s" "2" "-t" "1")
-      (let ((pane-1-height (tmux-pane-height "1"))
-            src-pane-id)
-        (tmux-run-command-on-pane-1 "resize-pane" "-y" "5")
-        (tmux-display-pane-numbers)
-        (setq src-pane-id (my/tmux-select-number (cddr num-list) prompt))
-        (tmux-run-command "swap-pane" "-s" src-pane-id "-t" "1")
-        (tmux-run-command-on-pane-1 "resize-pane" "-y" pane-1-height)))
-    (tmux-run-command "select-pane" "-t" "0")
+    (if (= (length num-list) 2)
+        (tmux-pane-0-run-command "swap-pane" "-s" "1")
+      (tmux-display-pane-numbers)
+      (setq src-pane-id (my/tmux-select-number (cddr num-list) prompt))
+      (tmux-pane-0-run-command "swap-pane" "-s" src-pane-id))
+    (tmux-pane-0-run-command "select-pane")
     ))
-
-(defun tmux-swap-pane-2 ()
-  (interactive)
-  (tmux-run-command "swap-pane" "-s" "2" "-t" "1")
-  (tmux-run-command "select-pane" "-t" "0")
-  )
-
-(defun tmux-swap-pane-3 ()
-  (interactive)
-  (tmux-run-command "swap-pane" "-s" "3" "-t" "1")
-  (tmux-run-command "select-pane" "-t" "0")
-  )
-
-(defun tmux-swap-pane-4 ()
-  (interactive)
-  (tmux-run-command "swap-pane" "-s" "4" "-t" "1")
-  (tmux-run-command "select-pane" "-t" "0")
-  )
-
-(defun tmux-swap-pane-5 ()
-  (interactive)
-  (tmux-run-command "swap-pane" "-s" "5" "-t" "1")
-  (tmux-run-command "select-pane" "-t" "0")
-  )
 
 (defun tmux-tail-this-file ()
   (interactive)
